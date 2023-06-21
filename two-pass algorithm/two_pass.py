@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import get_plot_commands
 import numpy as np
 from PIL import Image
-
+from time import sleep
 from random import randint
 
 robot_position = [0.77, 0.25]
@@ -10,15 +11,18 @@ map_r = 1.9
 
 threshold = 10
 background = [0., 0., 0.]
-center = [1., .0, .0]
-bot = [.0, 1., .0]
+center = [1., 1., 1.]
 waypoint = [.0, .0, 1.]
+colors = [[.69, .15, .4], [1., .2, .43], [1., .74, .4], [1., .42, .3], [.0, .53, .6], [.24, .51, .38], [1., .9, .41], [.88, .67, .35], [.72, .58, .82], [1., .0, .0], [.0, 1., .0], [.0, .0, 1.], [1., 1., .0], [1., .0, 1.], [.0, 1., 1.]]
 adjacent1 = [[0,-1], [-1,0], [-1,-1], [-1,1]]    # W, N, NW, NE
 adjacent2 = [[0,1], [1,0], [1,-1], [1,1]]    # O, S, SW, SE
 
 src_img = np.array(Image.open('construction_map.pgm'))
+# src_img = np.array(Image.open('map3.pgm'))
 M = len(src_img)
 N = len(src_img[0])
+
+print(M, N)
 
 def two_pass(data):
     linked = []
@@ -26,21 +30,16 @@ def two_pass(data):
     nextLabel = 1
 
     # first pass
-    for row in range(len(data)):
-        for column in range(len(data[row])):
+    for row in range(M):
+        for column in range(N):
             # if not background
             if data[row][column].tolist() != background:
                 # get all neighbors (W, N, NW, NE)
                 neighbors = []
-                neighbors_labels = []
                 for direction in adjacent1:
-                    try:
+                    if row+direction[0] in range(M) and column+direction[1] in range(N):
                         if data[row+direction[0]][column+direction[1]].tolist() != background:
-                            neighbors.append(data[row+direction[0]][column+direction[1]])
-                            neighbors_labels.append(labels[row+direction[0]][column+direction[1]])
-                    except:
-                        print('doesnt exist! out of image!')
-
+                            neighbors.append(labels[row+direction[0]][column+direction[1]])
                 # create new label if no neighbors found
                 if len(neighbors) == 0:
                     linked.append([nextLabel])
@@ -49,30 +48,35 @@ def two_pass(data):
 
                 else:
                     # find smallest label of neighbors
-                    L = neighbors_labels
-                    labels[row][column] = min(L)
-                    for label in L:
-                        linked[int(label)-1].append(nextLabel-1)
-
+                    labels[row][column] = int(min(neighbors))
+                    for label in neighbors:
+                        for L in neighbors:
+                            if int(L) not in linked[int(label)-1]:
+                                linked[int(label)-1].append(int(L))
+            
     # second pass
     for i in range(len(linked)):
-        current_label = linked[i][0]
-        linked[i] = [*set(linked[i])]
-        linked[i].sort()
-        [linked[item-1].append(int(min(linked[i]))) for item in linked[i] if item > current_label]
-        # linked[i] = [current_label, int(min(linked[i]))]
-        linked[i] = int(min(linked[i]))
+        for item in linked[i]:
+            for a in linked[item-1]:
+                if a not in linked[i]:
+                    linked[i].append(a)
 
-    print("\n", linked)
-
-    linked_short = linked.copy()
-    linked_short = [*set(linked_short)]
-
-    print("\n", linked_short)
-
+    # clean up
+    linked_short = []
+    skip = []
     for i in range(len(linked)):
-        print(i+1, linked[i], linked_short.index(linked[i]) + 1)
-        labels[labels==i+1] = linked_short.index(linked[i]) + 1
+        if i+1 not in skip:
+            for a in range(1, len(linked[i])):
+                skip.append(linked[i][a])
+            linked_short.append(linked[i])
+
+    # paint
+    for i in range(len(linked_short)):
+        for item in linked_short[i]:
+            labels[labels==item] = i+1
+
+    print(linked)
+    print(linked_short)
     
     return labels, len(linked_short)
 
@@ -81,6 +85,8 @@ def find_coords(data, labels, x1, y1, x2, y2):
     coords = []
     for i in range(labels):
         coords.append([])
+
+    print(len(coords))
 
     # get all the same labels coords together
     for row in range(len(data)):
@@ -154,27 +160,39 @@ def main():
     gray_img[src_img>threshold] = [0,0,0]
     gray_img[src_img<threshold] = [1,1,1]
 
+    plt.imshow(gray_img, interpolation='None')
+    plt.show()
+
     # apply two-pass algorithm (label connected areas)
     label_img, label_amount = two_pass(gray_img)
+
+    plt.imshow(label_img, interpolation='None')
+    plt.show()
+
+    # colorize labels to be distinguishable
+    col_img = np.zeros((M,N,3))
+    for label in range(label_amount):
+        col_img[label_img==label+1] = colors[randint(0, len(colors)-1)]
 
     # calculate coords of the robot for matplotlib coordinate system, also visualize them
     robot_x = (robot_position[0] + map_r) / (2 * map_r) * N
     robot_y = (-robot_position[1] + map_r) / (2 * map_r) * M
-    gray_img[int(robot_y)][int(robot_x)] = bot
+    col_img[int(robot_y)][int(robot_x)] = center
 
     # paint center coords on top (white)
-    coords = find_coords(label_img, label_amount, robot_x, 0, N, robot_y)   # check in construction site
+    # coords = find_coords(label_img, label_amount, robot_x, 0, N, robot_y)   # check in construction site
+    coords = find_coords(label_img, label_amount, 0, 0, N, M)
     for coord in coords:
         print(coord)
-        gray_img[coord[0]][coord[1]] = center
+        col_img[coord[0]][coord[1]] = center
 
     # set and visualize waypoints
-    waypoints = create_waypoints(coords, robot_x, robot_y)
-    for wp in waypoints:
-        gray_img[int(wp[0])][int(wp[1])] = waypoint
+    # waypoints = create_waypoints(coords, robot_x, robot_y)
+    # for wp in waypoints:
+    #     col_img[int(wp[0])][int(wp[1])] = center
 
     # show image
-    plt.imshow(gray_img, interpolation='None')
+    plt.imshow(col_img, interpolation='None')
     plt.show()
 
 main()
