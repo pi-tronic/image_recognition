@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.pyplot import get_plot_commands
 import numpy as np
 from PIL import Image
-
+from time import sleep
 from random import randint
 
 robot_position = [0.77, 0.25]
@@ -18,6 +18,7 @@ adjacent1 = [[0,-1], [-1,0], [-1,-1], [-1,1]]    # W, N, NW, NE
 adjacent2 = [[0,1], [1,0], [1,-1], [1,1]]    # O, S, SW, SE
 
 src_img = np.array(Image.open('construction_map.pgm'))
+# src_img = np.array(Image.open('map3.pgm'))
 M = len(src_img)
 N = len(src_img[0])
 
@@ -49,27 +50,33 @@ def two_pass(data):
                     # find smallest label of neighbors
                     labels[row][column] = int(min(neighbors))
                     for label in neighbors:
-                        linked[nextLabel-2].append(int(label))
+                        for L in neighbors:
+                            if int(L) not in linked[int(label)-1]:
+                                linked[int(label)-1].append(int(L))
             
     # second pass
     for i in range(len(linked)):
-        current_label = linked[i][0]
-        linked[i] = [*set(linked[i])]
-        linked[i].sort()
-        [linked[item-1].append(int(min(linked[i]))) for item in linked[i] if item > current_label]
-        # linked[i] = [current_label, int(min(linked[i]))]
-        linked[i] = int(min(linked[i]))
+        for item in linked[i]:
+            for a in linked[item-1]:
+                if a not in linked[i]:
+                    linked[i].append(a)
 
-    print("\n", linked)
-
-    linked_short = linked.copy()
-    linked_short = [*set(linked_short)]
-
-    print("\n", linked_short)
-
+    # clean up
+    linked_short = []
+    skip = []
     for i in range(len(linked)):
-        print(i+1, linked[i], linked_short.index(linked[i]) + 1)
-        labels[labels==i+1] = linked_short.index(linked[i]) + 1
+        if i+1 not in skip:
+            for a in range(1, len(linked[i])):
+                skip.append(linked[i][a])
+            linked_short.append(linked[i])
+
+    # paint
+    for i in range(len(linked_short)):
+        for item in linked_short[i]:
+            labels[labels==item] = i+1
+
+    print(linked)
+    print(linked_short)
     
     return labels, len(linked_short)
 
@@ -153,13 +160,19 @@ def main():
     gray_img[src_img>threshold] = [0,0,0]
     gray_img[src_img<threshold] = [1,1,1]
 
+    plt.imshow(gray_img, interpolation='None')
+    plt.show()
+
     # apply two-pass algorithm (label connected areas)
     label_img, label_amount = two_pass(gray_img)
 
+    plt.imshow(label_img, interpolation='None')
+    plt.show()
+
     # colorize labels to be distinguishable
     col_img = np.zeros((M,N,3))
-    for label in range(1, label_amount):
-        col_img[label_img==label] = colors[randint(0, len(colors)-1)]
+    for label in range(label_amount):
+        col_img[label_img==label+1] = colors[randint(0, len(colors)-1)]
 
     # calculate coords of the robot for matplotlib coordinate system, also visualize them
     robot_x = (robot_position[0] + map_r) / (2 * map_r) * N
@@ -174,9 +187,9 @@ def main():
         col_img[coord[0]][coord[1]] = center
 
     # set and visualize waypoints
-    waypoints = create_waypoints(coords, robot_x, robot_y)
-    for wp in waypoints:
-        col_img[int(wp[0])][int(wp[1])] = center
+    # waypoints = create_waypoints(coords, robot_x, robot_y)
+    # for wp in waypoints:
+    #     col_img[int(wp[0])][int(wp[1])] = center
 
     # show image
     plt.imshow(col_img, interpolation='None')
